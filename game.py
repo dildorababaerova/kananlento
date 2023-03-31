@@ -1,7 +1,11 @@
 import pygame
+
+
 def main():
     game = Game()
     game.run()
+    
+    
 class Game:
     def __init__(self):
         pygame.init()
@@ -9,6 +13,8 @@ class Game:
         self.running = False
         self.init_graphics()
         self.init_objects()
+        
+        
     def init_graphics(self):
         self.bird_frame = 0
         bird_imgs = [
@@ -38,14 +44,20 @@ class Game:
 
     def run(self):
         clock = pygame.time.Clock()
+        
+        
         self.running = True
+        
+        
         while self.running:
             self.handle_events()
             self.handle_game_logic()
             self.update_screen()
             # Odota niin kauan, että ruudun päivitysnopeus on 60fps
             clock.tick(60)
+            
         pygame.quit()
+        
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -73,6 +85,7 @@ class Game:
             self.bird_y_speed += 0.2
         # Liikuta lintua sen nopeuden verran
         bird_y += self.bird_y_speed
+        
         self.bird_pos = (self.bird_pos[0], bird_y)
 
     def update_screen(self):
@@ -90,5 +103,6 @@ class Game:
         bird_img = pygame.transform.rotozoom(bird_img_i, angle, 1)
         self.screen.blit(bird_img, self.bird_pos)
         pygame.display.flip()
+        
 if __name__ == "__main__":
     main()
