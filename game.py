@@ -1,5 +1,8 @@
+import random
+
 import pygame
 
+from highscore import HighscoreRecorder
 from menu import Menu
 from obstacle import Obstacle
 
@@ -25,19 +28,28 @@ class Game:
             "About",
             "Quit",
         ])
+        self.highscore_recorder = HighscoreRecorder()
         self.is_fullscreen = False
         self.is_in_menu = True
+        self.is_in_highscore_record = False
         self.show_fps = True
         self.screen = pygame.display.set_mode(DEFAULT_SCREEN_SIZE)
         self.screen_w = self.screen.get_width()
         self.screen_h = self.screen.get_height()
         self.running = False
         self.font16 = pygame.font.Font("fonts/SyneMono-Regular.ttf", 16)
+        self.init_sounds()
         self.init_graphics()
         self.init_objects()
+        self.open_menu()
+
+    def init_sounds(self):
+        self.flying_sound = pygame.mixer.Sound("sounds/flying.wav")
+        self.hit_sound = pygame.mixer.Sound("sounds/hit.wav")
 
     def init_graphics(self):
         self.menu.set_font_size(int(48 * self.screen_h / 450))
+        self.highscore_recorder.set_font_size(int(36 * self.screen_h / 450))
         big_font_size = int(96 * self.screen_h / 450)
         self.font_big = pygame.font.Font("fonts/SyneMono-Regular.ttf", big_font_size)
         original_bird_images = [
@@ -79,6 +91,7 @@ class Game:
         self.bird_frame = 0
         self.bird_lift = False
         self.obstacles: list[Obstacle] = []
+        self.next_obstacle_at = self.screen_w / 2
         self.add_obstacle()
 
     def add_obstacle(self):
@@ -139,8 +152,7 @@ class Game:
                     elif event.key == pygame.K_RETURN:
                         item = self.menu.get_selected_item()
                         if item == "New Game":
-                            self.is_in_menu = False
-                            self.init_objects()
+                            self.start_game()
                         elif item == "High Scores":
                             pass  # TODO: Implement High Score view
                         elif item == "About":
@@ -150,7 +162,43 @@ class Game:
                 elif event.key in (pygame.K_SPACE, pygame.K_UP):
                     self.bird_lift = False
                 elif event.key == pygame.K_ESCAPE or not self.bird_alive:
-                    self.is_in_menu = True
+                    if not self.is_in_highscore_record:
+                        self.record_highscores()
+                    else:
+                        self.open_menu()
+
+    def start_game(self):
+        self.play_game_music()
+        self.is_in_menu = False
+        self.is_in_highscore_record = False
+        self.init_objects()
+        self.flying_sound.play(-1)
+
+    def open_menu(self):
+        self.play_menu_music()
+        self.is_in_menu = True
+        self.flying_sound.stop()
+
+    def kill_bird(self):
+        if self.bird_alive:
+            self.bird_alive = False
+            self.flying_sound.stop()
+            self.hit_sound.play()
+            pygame.mixer.music.fadeout(500)
+
+    def record_highscores(self):
+        self.is_in_highscore_record = True
+        print("High score")
+
+    def play_menu_music(self):
+        pygame.mixer.music.load("music/menu_chill.ogg")
+        pygame.mixer.music.set_volume(0.4)
+        pygame.mixer.music.play(loops=-1)
+
+    def play_game_music(self):
+        pygame.mixer.music.load("music/run_game_2.ogg")
+        pygame.mixer.music.set_volume(0.4)
+        pygame.mixer.music.play(loops=-1)
 
     def toggle_fullscreen(self):
         old_w = self.screen_w
@@ -203,14 +251,18 @@ class Game:
         if bird_y > self.screen_h * 0.82:
             bird_y = self.screen_h * 0.82
             self.bird_y_speed = 0
-            self.bird_alive = False
+            self.kill_bird()
 
         # Aseta linnun x-y-koordinaatit self.bird_pos-muuttujaan
         self.bird_pos = (self.bird_pos[0], bird_y)
 
         # Lisää uusi este, kun viimeisin este on yli ruudun puolivälin
-        if self.obstacles[-1].position < self.screen_w / 2:
+        if self.obstacles[-1].position < self.next_obstacle_at:
             self.add_obstacle()
+            self.next_obstacle_at = random.randint(
+                int(self.screen_w * 0.35),
+                int(self.screen_w * 0.65),
+            )
 
         # Poista vasemmanpuoleisin este, kun se menee pois ruudulta
         if not self.obstacles[0].is_visible():
@@ -226,14 +278,17 @@ class Game:
                 self.bird_collides_with_obstacle = True
         
         if self.bird_collides_with_obstacle:
-            self.bird_alive = False
+            self.kill_bird()
 
     def update_screen(self):
         # Täytä tausta vaaleansinisellä
         #self.screen.fill((230, 230, 255))
 
         # Piirrä taustakerrokset (3 kpl)
-        for i in range(len(self.bg_imgs)):
+        for i in range(len(self.bg_imgs)):  # i käy läpi luvut 0, 1 ja 2
+            # Menussa piirretään vain ensimmäinen taustakerros
+            if self.is_in_menu and i == 1:
+                break  # Kun ollaan menussa ja i=1, niin lopetetaan looppi
             # Ensin piirrä vasen tausta
             self.screen.blit(self.bg_imgs[i], (self.bg_pos[i], 0))
             # Jos vasen tausta ei riitä peittämään koko ruutua, niin...
@@ -250,6 +305,10 @@ class Game:
 
         if self.is_in_menu:
             self.menu.render(self.screen)
+            return
+
+        if self.is_in_highscore_record:
+            self.highscore_recorder.render(self.screen)
             return
 
         for obstacle in self.obstacles:
