@@ -1,9 +1,11 @@
+import enum
 import random
 
 import pygame
 
-from highscore import HighscoreRecorder
-from menu import Menu
+from highscore import (
+    HighscoreAction, HighscoresDisplay, HighscoreRecorder)
+from menu import Menu, MenuAction
 from obstacle import Obstacle
 
 DEFAULT_SCREEN_SIZE = (800, 450)
@@ -18,20 +20,22 @@ def main():
     game.run()
 
 
+class ActiveComponent(enum.Enum):
+    MENU = enum.auto()
+    GAME = enum.auto()
+    SHOW_HIGHSCORES = enum.auto()
+    RECORD_HIGHSCORE = enum.auto()
+
+
 class Game:
     def __init__(self):
         pygame.init()
         self.clock = pygame.time.Clock()
-        self.menu = Menu([
-            "New Game",
-            "High Scores",
-            "About",
-            "Quit",
-        ])
+        self.menu = Menu()
         self.highscore_recorder = HighscoreRecorder()
+        self.highscore_display = HighscoresDisplay()
         self.is_fullscreen = False
-        self.is_in_menu = True
-        self.is_in_highscore_record = False
+        self.active_component: ActiveComponent = ActiveComponent.MENU
         self.show_fps = True
         self.screen = pygame.display.set_mode(DEFAULT_SCREEN_SIZE)
         self.screen_w = self.screen.get_width()
@@ -119,8 +123,9 @@ class Game:
             # Käsittele tapahtumat (eventit)
             self.handle_events()
 
-            # Pelin logiikka (liikkumiset, painovoima, yms.)
-            self.handle_game_logic()
+            if self.active_component == ActiveComponent.GAME:
+                # Pelin logiikka (liikkumiset, painovoima, yms.)
+                self.handle_game_logic()
 
             # Päivitä näyttö
             self.update_screen()
@@ -135,51 +140,62 @@ class Game:
 
     def handle_events(self):
         for event in pygame.event.get():
-            self.handle_event(event)
+            if event.type == pygame.QUIT:
+                self.running = False
+            elif event.type == pygame.KEYUP and event.key == pygame.K_F11:
+                self.toggle_fullscreen()
+            elif self.active_component == ActiveComponent.GAME:
+                self.handle_event(event)
+            elif self.active_component == ActiveComponent.MENU:
+                action = self.menu.handle_event(event)
+                if action:
+                    self.handle_menu_action(action)
+            elif self.active_component == ActiveComponent.SHOW_HIGHSCORES:
+                action = self.highscore_display.handle_event(event)
+                if action:
+                    self.handle_highscore_action(action)
+            elif self.active_component == ActiveComponent.RECORD_HIGHSCORE:
+                action = self.highscore_recorder.handle_event(event)
+                if action:
+                    self.handle_highscore_action(action)
 
     def handle_event(self, event):
-        if event.type == pygame.QUIT:
-            self.running = False
-        elif event.type == pygame.KEYDOWN:
+        if event.type == pygame.KEYDOWN:
             if event.key in (pygame.K_SPACE, pygame.K_UP):
-                if not self.is_in_menu:
-                    self.bird_lift = True
+                self.bird_lift = True
         elif event.type == pygame.KEYUP:
-            if event.key in (pygame.K_f, pygame.K_F11):
-                self.toggle_fullscreen()
-            elif self.is_in_menu:
-                if event.key == pygame.K_UP:
-                    self.menu.select_previous_item()
-                elif event.key == pygame.K_DOWN:
-                    self.menu.select_next_item()
-                elif event.key == pygame.K_RETURN:
-                    item = self.menu.get_selected_item()
-                    if item == "New Game":
-                        self.start_game()
-                    elif item == "High Scores":
-                        pass  # TODO: Implement High Score view
-                    elif item == "About":
-                        pass  # TODO: Implement About view
-                    elif item == "Quit":
-                        self.running = False
-            elif event.key in (pygame.K_SPACE, pygame.K_UP):
+            if event.key in (pygame.K_SPACE, pygame.K_UP):
                 self.bird_lift = False
             elif event.key == pygame.K_ESCAPE or not self.bird_alive:
-                if not self.is_in_highscore_record:
-                    self.record_highscores()
+                if self.active_component == ActiveComponent.GAME:
+                    self.record_highscore()
                 else:
                     self.open_menu()
 
+    def handle_menu_action(self, action: MenuAction):
+        if action == MenuAction.NEW_GAME:
+            self.start_game()
+        elif action == MenuAction.HIGHSCORES:
+            self.active_component = ActiveComponent.SHOW_HIGHSCORES
+            self.highscore_display.reload_file()
+        elif action == MenuAction.ABOUT:
+            pass  # TODO: Implement About
+        elif action == MenuAction.QUIT:
+            self.running = False
+
+    def handle_highscore_action(self, action):
+        if action == HighscoreAction.CLOSE:
+            self.active_component = ActiveComponent.MENU
+
     def start_game(self):
+        self.active_component = ActiveComponent.GAME
         self.play_game_music()
-        self.is_in_menu = False
-        self.is_in_highscore_record = False
         self.init_objects()
         self.flying_sound.play(-1)
 
     def open_menu(self):
+        self.active_component = ActiveComponent.MENU
         self.play_menu_music()
-        self.is_in_menu = True
         self.flying_sound.stop()
 
     def kill_bird(self):
@@ -189,9 +205,9 @@ class Game:
             self.hit_sound.play()
             pygame.mixer.music.fadeout(500)
 
-    def record_highscores(self):
-        self.is_in_highscore_record = True
-        print("High score")
+    def record_highscore(self):
+        self.active_component = ActiveComponent.RECORD_HIGHSCORE
+        self.highscore_recorder.record_highscore(self.score)
 
     def play_menu_music(self):
         pygame.mixer.music.load("music/menu_chill.ogg")
@@ -222,9 +238,6 @@ class Game:
         )
 
     def handle_game_logic(self):
-        if self.is_in_menu:
-            return
-
         if self.bird_alive:
             self.bg_pos[0] -= 0.5
             self.bg_pos[1] -= 1
@@ -284,14 +297,23 @@ class Game:
             self.kill_bird()
 
     def update_screen(self):
-        # Täytä tausta vaaleansinisellä
-        #self.screen.fill((230, 230, 255))
+        self.update_screen_background()
 
+        if self.active_component == ActiveComponent.GAME:
+            self.update_screen_game()
+        elif self.active_component == ActiveComponent.MENU:
+            self.menu.render(self.screen)
+        elif self.active_component == ActiveComponent.SHOW_HIGHSCORES:
+            self.highscore_display.render(self.screen)
+        elif self.active_component == ActiveComponent.RECORD_HIGHSCORE:
+            self.highscore_recorder.render(self.screen)
+
+    def update_screen_background(self):
         # Piirrä taustakerrokset (3 kpl)
         for i in range(len(self.bg_imgs)):  # i käy läpi luvut 0, 1 ja 2
-            # Menussa piirretään vain ensimmäinen taustakerros
-            if self.is_in_menu and i == 1:
-                break  # Kun ollaan menussa ja i=1, niin lopetetaan looppi
+            # Vain pelitilasa piirretään taustakerrokset 1 ja 2
+            if self.active_component != ActiveComponent.GAME and i == 1:
+                break  # Jos ei olla pelissä ja i=1, niin lopetetaan looppi
             # Ensin piirrä vasen tausta
             self.screen.blit(self.bg_imgs[i], (self.bg_pos[i], 0))
             # Jos vasen tausta ei riitä peittämään koko ruutua, niin...
@@ -306,14 +328,7 @@ class Game:
                 # ...niin aloita alusta
                 self.bg_pos[i] += self.bg_widths[i]
 
-        if self.is_in_menu:
-            self.menu.render(self.screen)
-            return
-
-        if self.is_in_highscore_record:
-            self.highscore_recorder.render(self.screen)
-            return
-
+    def update_screen_game(self):
         for obstacle in self.obstacles:
             obstacle.render(self.screen)
 
