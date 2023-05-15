@@ -88,6 +88,7 @@ class Game:
 
     def init_objects(self):
         self.score = 0
+        self.speedfactor = 1
         self.bird_alive = True
         self.bird_y_speed = 0
         self.bird_pos = (self.screen_w / 3, self.screen_h / 4)
@@ -239,9 +240,9 @@ class Game:
 
     def handle_game_logic(self):
         if self.bird_alive:
-            self.bg_pos[0] -= 0.5
-            self.bg_pos[1] -= 1
-            self.bg_pos[2] -= 3
+            self.bg_pos[0] -= 0.5 * self.speedfactor
+            self.bg_pos[1] -= 1 * self.speedfactor
+            self.bg_pos[2] -= 3 * self.speedfactor
 
         bird_y = self.bird_pos[1]
 
@@ -284,12 +285,15 @@ class Game:
         if not self.obstacles[0].is_visible():
             self.remove_oldest_obstacle()
             self.score += 1
+            # Jos score on viidellä jaollinen, niin nopeuta peliä
+            if self.score % 5 == 0:
+                self.speedfactor *= 1.05  #  5% lisää nopeutta
 
         # Siirrä esteitä sopivalla nopeudella ja tarkista törmäys
         self.bird_collides_with_obstacle = False
         for obstacle in self.obstacles:
             if self.bird_alive:
-                obstacle.move(self.screen_w * 0.005)
+                obstacle.move(self.screen_w * 0.005 * self.speedfactor)
             if obstacle.collides_with_circle(self.bird_pos, self.bird_radius):
                 self.bird_collides_with_obstacle = True
         
@@ -297,7 +301,8 @@ class Game:
             self.kill_bird()
 
     def update_screen(self):
-        self.update_screen_background()
+        bg_layers = 3 if self.active_component == ActiveComponent.GAME else 1
+        self.update_screen_background(layer_count=bg_layers)
 
         if self.active_component == ActiveComponent.GAME:
             self.update_screen_game()
@@ -308,12 +313,11 @@ class Game:
         elif self.active_component == ActiveComponent.RECORD_HIGHSCORE:
             self.highscore_recorder.render(self.screen)
 
-    def update_screen_background(self):
-        # Piirrä taustakerrokset (3 kpl)
-        for i in range(len(self.bg_imgs)):  # i käy läpi luvut 0, 1 ja 2
-            # Vain pelitilasa piirretään taustakerrokset 1 ja 2
-            if self.active_component != ActiveComponent.GAME and i == 1:
-                break  # Jos ei olla pelissä ja i=1, niin lopetetaan looppi
+    def update_screen_background(self, layer_count):
+        layers = self.bg_imgs[:layer_count]
+
+        # Piirrä taustakerrokset (layer_count kappaletta)
+        for i in range(len(layers)):  # i käy läpi luvut 0, 1, ..., layer_count
             # Ensin piirrä vasen tausta
             self.screen.blit(self.bg_imgs[i], (self.bg_pos[i], 0))
             # Jos vasen tausta ei riitä peittämään koko ruutua, niin...
